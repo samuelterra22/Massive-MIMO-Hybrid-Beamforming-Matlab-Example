@@ -12,5 +12,7 @@ Compared to current wireless systems, the wavelength in the mmWave band is much 
 
 This example uses a multi-user MIMO-OFDM system to highlight the partitioning of the required precoding into its digital baseband and RF analog components at the transmitter end. Building on the system highlighted in the MIMO-OFDM Precoding with Phased Arrays example, this example shows the formulation of the transmit-end precoding matrices and their application to a MIMO-OFDM system.
 
+![](./screenshots/01.png)
+
 [1] Molisch, A. F., et al. "Hybrid Beamforming for Massive MIMO: A Survey." IEEE Communications Magazine, Vol. 55, No. 9, September 2017, pp. 134-141.
 
