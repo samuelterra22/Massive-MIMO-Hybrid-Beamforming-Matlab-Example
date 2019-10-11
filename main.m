@@ -197,3 +197,152 @@ else % ULA
 end
 
 prm.numSTS = numSTS;                 % revert back for data transmission
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%% Data Transmission %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% Convolutional encoder
+encoder = comm.ConvolutionalEncoder( ...
+    'TrellisStructure',poly2trellis(7,[133 171 165]), ...
+    'TerminationMethod','Terminated');
+
+% Bits to QAM symbol mapping
+modRQAM = comm.RectangularQAMModulator( ...
+    'ModulationOrder',prm.modMode,'BitInput',true, ...
+    'NormalizationMethod','Average power');
+
+txDataBits = cell(prm.numUsers, 1);
+gridData = complex(zeros(prm.numCarriers,prm.numDataSymbols,numSTS));
+for uIdx = 1:prm.numUsers
+    % Generate mapped symbols from bits per user
+    txDataBits{uIdx} = randi([0,1],prm.numFrmBits(uIdx),1);
+    encodedBits = encoder(txDataBits{uIdx});
+    mappedSym = modRQAM(encodedBits);
+
+    % Map to layers: per user, per symbol, per data stream
+    stsIdx = sum(numSTSVec(1:(uIdx-1)))+(1:numSTSVec(uIdx));
+    gridData(:,:,stsIdx) = reshape(mappedSym,prm.numCarriers, ...
+        prm.numDataSymbols,numSTSVec(uIdx));
+end
+
+% Apply precoding weights to the subcarriers, assuming perfect feedback
+preData = complex(zeros(prm.numCarriers,prm.numDataSymbols,numSTS));
+for symIdx = 1:prm.numDataSymbols
+    for carrIdx = 1:prm.numCarriers
+        Q = squeeze(v(carrIdx,:,:));
+        normQ = Q * sqrt(numTx)/norm(Q,'fro');
+        preData(carrIdx,symIdx,:) = squeeze(gridData(carrIdx,symIdx,:)).' ...
+            * normQ;
+    end
+end
+
+% Multi-antenna pilots
+pilots = helperGenPilots(prm.numDataSymbols,numSTS);
+
+% OFDM modulation of the data
+txOFDM = ofdmmod(preData,prm.FFTLength,prm.CyclicPrefixLength,...
+                 prm.NullCarrierIndices,prm.PilotCarrierIndices,pilots);
+%   scale power for used sub-carriers
+txOFDM = txOFDM * (prm.FFTLength/ ...
+    sqrt((prm.FFTLength-length(prm.NullCarrierIndices))));
+
+% Generate preamble with the feedback weights and prepend to data
+preambleSigD = helperGenPreamble(prm,v);
+txSigSTS = [preambleSigD;txOFDM];
+
+% RF beamforming: Apply Frf to the digital signal
+%   Each antenna element is connected to each data stream
+txSig = txSigSTS*mFrf;
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%% Signal Propagation %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% Apply a spatially defined channel to the transmit signal
+[rxSig,chanDelay] = helperApplyMUChannel(txSig,prm,spLoss,preambleSig);
+
+
+%%%%%%%%%%%%%% Receive Amplification and Signal Recovery %%%%%%%%%%%%%%%%%%
+
+
+hfig = figure('Name','Equalized symbol constellation per stream');
+scFact = ((prm.FFTLength-length(prm.NullCarrierIndices))...
+         /prm.FFTLength^2)/numTx;
+nVar = noisepow(prm.chanSRate,prm.NFig,290)/scFact;
+demodRQAM = comm.RectangularQAMDemodulator( ...
+    'ModulationOrder',prm.modMode,'BitOutput',true, ...
+    'DecisionMethod','Approximate log-likelihood ratio', ...
+    'NormalizationMethod','Average power','Variance',nVar);
+decoder = comm.ViterbiDecoder('InputFormat','Unquantized', ...
+    'TrellisStructure',poly2trellis(7, [133 171 165]), ...
+    'TerminationMethod','Terminated','OutputDataType','double');
+
+for uIdx = 1:prm.numUsers
+    stsU = numSTSVec(uIdx);
+    stsIdx = sum(numSTSVec(1:(uIdx-1)))+(1:stsU);
+
+    % Front-end amplifier gain and thermal noise
+    rxPreAmp = phased.ReceiverPreamp( ...
+        'Gain',spLoss(uIdx), ...        % account for path loss
+        'NoiseFigure',prm.NFig,'ReferenceTemperature',290, ...
+        'SampleRate',prm.chanSRate);
+    rxSigAmp = rxPreAmp(rxSig{uIdx});
+
+    % Scale power for occupied sub-carriers
+    rxSigAmp = rxSigAmp*(sqrt(prm.FFTLength-length(prm.NullCarrierIndices)) ...
+        /prm.FFTLength);
+
+    % OFDM demodulation
+    rxOFDM = ofdmdemod(rxSigAmp(chanDelay(uIdx)+1: ...
+        end-(prm.numPadZeros-chanDelay(uIdx)),:),prm.FFTLength, ...
+        prm.CyclicPrefixLength,prm.CyclicPrefixLength, ...
+        prm.NullCarrierIndices,prm.PilotCarrierIndices);
+
+    % Channel estimation from the mapped preamble
+    hD = helperMIMOChannelEstimate(rxOFDM(:,1:numSTS,:),prm);
+
+    % MIMO equalization
+    %   Index into streams for the user of interest
+    [rxEq,CSI] = helperMIMOEqualize(rxOFDM(:,numSTS+1:end,:),hD(:,stsIdx,:));
+
+    % Soft demodulation
+    rxSymbs = rxEq(:)/sqrt(numTx);
+    rxLLRBits = demodRQAM(rxSymbs);
+
+    % Apply CSI prior to decoding
+    rxLLRtmp = reshape(rxLLRBits,prm.bitsPerSubCarrier,[], ...
+        prm.numDataSymbols,stsU);
+    csitmp = reshape(CSI,1,[],1,numSTSVec(uIdx));
+    rxScaledLLR = rxLLRtmp.*csitmp;
+
+    % Soft-input channel decoding
+    rxDecoded = decoder(rxScaledLLR(:));
+
+    % Decoded received bits
+    rxBits = rxDecoded(1:prm.numFrmBits(uIdx));
+
+    % Plot equalized symbols for all streams per user
+    scaler = ceil(max(abs([real(rxSymbs(:)); imag(rxSymbs(:))])));
+    for i = 1:stsU
+        subplot(prm.numUsers, max(numSTSVec), (uIdx-1)*max(numSTSVec)+i);
+        plot(reshape(rxEq(:,:,i)/sqrt(numTx), [], 1), '.');
+        axis square
+        xlim(gca,[-scaler scaler]);
+        ylim(gca,[-scaler scaler]);
+        title(['U ' num2str(uIdx) ', DS ' num2str(i)]);
+        grid on;
+    end
+
+    % Compute and display the EVM
+    evm = comm.EVM('Normalization','Average constellation power', ...
+        'ReferenceSignalSource','Estimated from reference constellation', ...
+        'ReferenceConstellation',constellation(demodRQAM));
+    rmsEVM = evm(rxSymbs);
+    disp(['User ' num2str(uIdx)]);
+    disp(['  RMS EVM (%) = ' num2str(rmsEVM)]);
+
+    % Compute and display bit error rate
+    ber = comm.ErrorRate;
+    measures = ber(txDataBits{uIdx},rxBits);
+    fprintf('  BER = %.5f; No. of Bits = %d; No. of errors = %d\n', ...
+        measures(1),measures(3),measures(2));
+end
