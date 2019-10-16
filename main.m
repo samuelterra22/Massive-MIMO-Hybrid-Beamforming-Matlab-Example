@@ -1,6 +1,6 @@
 s = rng(67);                        % Set RNG state for repeatability
 
-%%%%%%%%%%%%%%% DEFINE SYSTEM PARAMETERS FOR THE EXAMPLE %%%%%%%%%%%%%%%%%%
+%% DEFINE SYSTEM PARAMETERS FOR THE EXAMPLE %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 % Multi-user system with single/multiple streams per user
 prm.numUsers = 4;                   % Number of users
@@ -27,7 +27,7 @@ prm.ChanType = 'Scattering';        % Channel options: 'Scattering', 'MIMO'
 prm.NFig = 8;                       % Noise figure (increase to worsen, 5-10 dB)
 prm.nRays = 500;                    % Number of rays for Frf, Fbb partitioning
 
-%%%%%%% DEFINE OFDM MODULATION PARAMETERS USEDS FOR THE SYSTEM   %%%%%%%%%%
+%% DEFINE OFDM MODULATION PARAMETERS USEDS FOR THE SYSTEM   %%%%%%%%%%%%%%%
 
 prm.FFTLength = 256;
 prm.CyclicPrefixLength = 64;
@@ -50,8 +50,8 @@ prm.modMode = 2 ^ prm.bitsPerSubCarrier; % Modulation order
 numPadSym = 3;                      % number of symbols to zeropad
 prm.numPadZeros = numPadSym* (prm.FFTLength + prm.CyclicPrefixLength);
 
-%%%%%%%%%%%%%%% DEFINE TRANSMITE AND RECEIVE ARRAYS AND %%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%% POSITIONAL PARAMETERS FOR THE SYSTEM %%%%%%%%%%%%%%%%%%%%
+%% DEFINE TRANSMITE AND RECEIVE ARRAYS AND %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% POSITIONAL PARAMETERS FOR THE SYSTEM %%%%%%%%%%%%%%%%%%%%
 
 prm.cLight = physconst('LightSpeed');
 prm.lambda = prm.cLight / prm.fc;
@@ -109,7 +109,7 @@ for uIdx = 1:prm.numUsers
 end
 
 
-%%%%%%%%%%%%%%%%%%%%%%% CHANNEL STATE INFORMATION %%%%%%%%%%%%%%%%%%%%%%%%%
+%% CHANNEL STATE INFORMATION %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 % Generate the preamble signal
 prm.numSTS = numTx;                 % set to numTx to sound out all channels
@@ -147,7 +147,7 @@ for uIdx = 1:prm.numUsers
 end
 
 
-%%%%%%%%%%%%%%%%%%%%%%%%%% HYBRID BEAMFORMING %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% HYBRID BEAMFORMING %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 
 % Calculate the hybrid weights on the transmit side
@@ -199,7 +199,7 @@ end
 prm.numSTS = numSTS;                 % revert back for data transmission
 
 
-%%%%%%%%%%%%%%%%%%%%%%%%%% Data Transmission %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Data Transmission %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 % Convolutional encoder
 encoder = comm.ConvolutionalEncoder( ...
@@ -255,13 +255,13 @@ txSigSTS = [preambleSigD;txOFDM];
 txSig = txSigSTS*mFrf;
 
 
-%%%%%%%%%%%%%%%%%%%%%%%%%% Signal Propagation %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Signal Propagation %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 % Apply a spatially defined channel to the transmit signal
 [rxSig,chanDelay] = helperApplyMUChannel(txSig,prm,spLoss,preambleSig);
 
 
-%%%%%%%%%%%%%% Receive Amplification and Signal Recovery %%%%%%%%%%%%%%%%%%
+%% Receive Amplification and Signal Recovery %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 
 hfig = figure('Name','Equalized symbol constellation per stream');
@@ -276,15 +276,47 @@ decoder = comm.ViterbiDecoder('InputFormat','Unquantized', ...
     'TrellisStructure',poly2trellis(7, [133 171 165]), ...
     'TerminationMethod','Terminated','OutputDataType','double');
 
+%% Show simple summary
+
+fprintf('\n----- Execution Summary -----\n');
+
+fprintf('Number of users: %d\n', prm.numUsers);
+disp(['Number of independent data streams per user: [' num2str(prm.numSTSVec) ']']);
+fprintf('numSTS: %d\n', prm.numSTS);
+fprintf('Number of BS transmit antennas: %d\n', prm.numTx);
+disp(['Number of receive antennas, per user: [' num2str(prm.numRx) ']']);
+fprintf('Number of bits per sub carrier: %d\n', prm.bitsPerSubCarrier);
+
+if prm.bitsPerSubCarrier == 2
+    fprintf('Modulation: QPSK\n')
+elseif prm.bitsPerSubCarrier == 4
+    fprintf('Modulation: 16QAM\n')
+elseif prm.bitsPerSubCarrier == 6
+    fprintf('Modulation: 64QAM\n')
+elseif prm.bitsPerSubCarrier == 8
+    fprintf('Modulation: 256QAM\n')
+end
+
+fprintf('Number of OFDM data symbols: %d\n', prm.numDataSymbols);
+fprintf('maxRange: %d\n', maxRange);
+fprintf('Frequency: %d\n', prm.fc)
+fprintf('Maximum Sample Rate: %d\n', prm.chanSRate)
+fprintf('Channel type: %s\n', prm.ChanType)
+fprintf('Noise figure: %d\n', prm.NFig)
+fprintf('Number of rays for Frf: %d\n\n', prm.nRays)
+
+fprintf('\n-----------------------------\n');
+
+%% Show RMS EVM and BER for each user %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 for uIdx = 1:prm.numUsers
     stsU = numSTSVec(uIdx);
     stsIdx = sum(numSTSVec(1:(uIdx-1)))+(1:stsU);
 
     % Front-end amplifier gain and thermal noise
     rxPreAmp = phased.ReceiverPreamp( ...
-        'Gain',spLoss(uIdx), ...        % account for path loss
-        'NoiseFigure',prm.NFig,'ReferenceTemperature',290, ...
-        'SampleRate',prm.chanSRate);
+        'Gain', spLoss(uIdx), ...        % account for path loss
+        'NoiseFigure', prm.NFig,'ReferenceTemperature',290, ...
+        'SampleRate', prm.chanSRate);
     rxSigAmp = rxPreAmp(rxSig{uIdx});
 
     % Scale power for occupied sub-carriers
