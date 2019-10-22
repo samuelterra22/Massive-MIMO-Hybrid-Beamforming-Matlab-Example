@@ -1,3 +1,5 @@
+clear;                              % Clear worksapace
+
 s = rng(67);                        % Set RNG state for repeatability
 
 %% DEFINE SYSTEM PARAMETERS FOR THE EXAMPLE %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
