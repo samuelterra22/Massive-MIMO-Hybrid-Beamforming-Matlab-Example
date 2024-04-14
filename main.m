@@ -1,5 +1,6 @@
-clear;                              % Clear worksapace
-
+clc;                              % Clear worksapace
+clear all;
+close all;
 s = rng(67);                        % Set RNG state for repeatability
 
 %% DEFINE SYSTEM PARAMETERS FOR THE EXAMPLE %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -118,7 +119,7 @@ prm.numSTS = numTx;                 % set to numTx to sound out all channels
 preambleSig = helperGenPreamble(prm);
 
 % Transmit preamble over channel
-prm.numSTS = numSTS;                % keep same array config for channel
+prm.numSTS = numSTS; % keep same array config for channel
 [rxPreSig, chanDelay] = helperApplyMUChannel(preambleSig, prm, spLoss);
 
 % Channel state information feedback
